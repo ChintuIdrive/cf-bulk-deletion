@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -21,42 +22,43 @@ func main() {
 	homeDir, _ := os.UserHomeDir()
 	logfilePath := filepath.Join(homeDir, "cfbulkdeletion.log")
 
-	if len(os.Args) < 3 || len(os.Args) > 4 {
-		log.Fatal("provide domain record file path and cloudflare token")
-	} else if len(os.Args) == 4 {
-		logfilePath = os.Args[3]
-		if !strings.HasSuffix(logfilePath, ".log") {
-			log.Fatal("wrong file path format: please provide log file path like /path/to/filename.log")
-		}
+	if len(os.Args) < 4 || len(os.Args) > 4 {
+		log.Fatal("provide domain record file path, cloudflare token")
 	}
+	// else if len(os.Args) == 4 {
+	// 	logfilePath = os.Args[3]
+	// 	if !strings.HasSuffix(logfilePath, ".log") {
+	// 		log.Fatal("wrong file path format: please provide log file path like /path/to/filename.log")
+	// 	}
+	// }
 
-	logger = getLogger(logfilePath)
+	initLogger(logfilePath)
 	logger.Println("cloudflare bulk dns record deletion")
 	dnsRecordFilePath := os.Args[1]
-	domains := getDomains(dnsRecordFilePath)
+	dnsList := getDNSList(dnsRecordFilePath)
 	cloudflareApiToken := os.Args[2]
+	zoneId := os.Args[3]
 	//cloudflareApiToken:"t-8InF-H5wjS066GxjXMVKUJXxs3WFvoLAK_pav0"
 	var err error
 	ClouflareAPiClient, err = cloudflare.NewWithAPIToken(cloudflareApiToken)
 	if err != nil {
 		logger.Fatal(err)
 	}
-	err = bulkDnsRecordRemoval(domains)
+	err = bulkDnsRecordRemoval(dnsList, zoneId)
 	if err != nil {
 		logger.Fatal(err)
 	}
 
 }
 
-func getLogger(logfilePath string) *log.Logger {
+func initLogger(logfilePath string) {
 	file, err := os.OpenFile(logfilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer file.Close()
-
-	logger := log.New(file, "cf-bulk-deletion", log.LstdFlags)
-	return logger
+	multiWriter := io.MultiWriter(file, os.Stdout)
+	logger = log.New(multiWriter, "cf-bulk-deletion ", log.LstdFlags)
+	logger.Print("testing")
 }
 
 func isEmptyLine(line string) bool {
@@ -64,7 +66,7 @@ func isEmptyLine(line string) bool {
 	return line == "" //delete empty lines
 }
 
-func getDomains(dnsRecordFilePath string) []string {
+func getDNSList(dnsRecordFilePath string) []string {
 	dnsRecord, err := os.ReadFile(dnsRecordFilePath)
 	if err != nil {
 		log.Fatal(err)
@@ -78,49 +80,52 @@ func getDomains(dnsRecordFilePath string) []string {
 	return dnsRecords
 }
 
-func bulkDnsRecordRemoval(domains []string) error {
+func bulkDnsRecordRemoval(dnsList []string, zoneID string) error {
+	api, err := cloudflare.NewWithAPIToken("t-8InF-H5wjS066GxjXMVKUJXxs3WFvoLAK_pav0")
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx := context.Background()
+	zoneID, err = api.ZoneIDByName("raghava.io")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	for _, domain := range domains {
-		if !isExceededRateLimit() {
+	if !isExceededRateLimit() {
+		// recs, _, err := ClouflareAPiClient.ListDNSRecords(context.Background(), cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{})
+		// if err != nil {
+		// 	logger.Println(err)
+		// 	return err
+		// }
+		recs, _, err := api.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{})
+		if err != nil {
+			log.Fatal(err)
+		}
 
-			zoneID, err := ClouflareAPiClient.ZoneIDByName(domain)
-			if err != nil {
-				log.Print(err)
-				return err
-			}
-			if !isExceededRateLimit() {
-				recs, _, err := ClouflareAPiClient.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{})
-				if err != nil {
-					log.Fatal(err)
-					return err
-				}
-				CloudflareaApiCallsCount++
-				err = deleteDNSrecord(zoneID, recs)
-				if err != nil {
-					log.Print(err)
-					return err
-				}
+		for _, dns := range dnsList {
+			var dnsRecord cloudflare.DNSRecord
+			if slices.ContainsFunc(recs, func(rec cloudflare.DNSRecord) bool {
+				dnsRecord = rec
+				return rec.Name == dns
+			}) {
+				deleteDNSrecord(zoneID, dnsRecord)
+			} else {
+				logger.Print(dns + " not avalable in zone" + zoneID)
 			}
 		}
 	}
+
 	return nil
 }
 
-func deleteDNSrecord(zoneID string, recs []cloudflare.DNSRecord) error {
-	ctx := context.Background()
-	for _, rec := range recs {
-		if strings.HasPrefix(rec.Name, "_acme-challenge") {
-			if !isExceededRateLimit() {
-				err := ClouflareAPiClient.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), rec.ID)
-				if err != nil {
-					log.Print(err)
-					return err
-				}
-				CloudflareaApiCallsCount++
-			}
-
+func deleteDNSrecord(zoneID string, rec cloudflare.DNSRecord) error {
+	if !isExceededRateLimit() {
+		err := ClouflareAPiClient.DeleteDNSRecord(context.Background(), cloudflare.ZoneIdentifier(zoneID), rec.ID)
+		if err != nil {
+			log.Print(err)
+			return err
 		}
+		CloudflareaApiCallsCount++
 	}
 	return nil
 }

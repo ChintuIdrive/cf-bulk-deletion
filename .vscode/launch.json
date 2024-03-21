@@ -10,7 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}",
-            "args": ["E:\\repos\\cf-bulk-deletion\\dnsrecord.txt","t-8InF-H5wjS066GxjXMVKUJXxs3WFvoLAK_pav0","4af17a2fc78f0ca9f54e3c4b37253db5"]
+            "args": ["dnsrecord.txt","t-8InF-H5wjS066GxjXMVKUJXxs3WFvoLAK_pav0","4af17a2fc78f0ca9f54e3c4b37253db5"]
         }
     ]
 }

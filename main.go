@@ -87,18 +87,27 @@ func bulkDnsRecordRemoval(dnsList []string, zoneID string) error {
 			return err
 		}
 
-		for _, dns := range dnsList {
-			var dnsRecord cloudflare.DNSRecord
-			if slices.ContainsFunc(recs, func(rec cloudflare.DNSRecord) bool {
-				dnsRecord = rec
-				return rec.Name == dns
-			}) {
-				deleteDNSrecord(zoneID, dnsRecord)
-				logger.Print("deleting dns record Id:" + dnsRecord.ID)
+		for _, rec := range recs {
+			if strings.HasPrefix(rec.Name, "_acme") {
+				deleteDNSrecord(zoneID, rec)
+				logger.Print("deleting dns record Id:" + rec.ID)
 			} else {
-				logger.Print(dns + " not avalable in zone" + zoneID)
+				logger.Print("not starts with _acme avalable in zone" + rec.Name)
 			}
 		}
+
+		// for _, dns := range dnsList {
+		// 	var dnsRecord cloudflare.DNSRecord
+		// 	if slices.ContainsFunc(recs, func(rec cloudflare.DNSRecord) bool {
+		// 		dnsRecord = rec
+		// 		return rec.Name == dns
+		// 	}) {
+		// 		deleteDNSrecord(zoneID, dnsRecord)
+		// 		logger.Print("deleting dns record Id:" + dnsRecord.ID)
+		// 	} else {
+		// 		logger.Print(dns + " not avalable in zone" + zoneID)
+		// 	}
+		// }
 	}
 
 	return nil
